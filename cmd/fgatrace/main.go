@@ -1,29 +1,32 @@
 package main
 
 import (
-	"bytes"
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"os"
 	"strconv"
-	"strings"
 
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/tree"
 	"github.com/openfga/language/pkg/go/graph"
 	"github.com/openfga/language/pkg/go/transformer"
 )
 
-const (
-	inflen  = 3
-	padding = inflen + 6
-)
+type frame struct {
+	label  string
+	branch *tree.Tree
+}
 
-var (
-	visited   map[*graph.WeightedAuthorizationModelEdge]struct{}
-	stack     []string
-	separator = []byte(" ")
-)
+func label(name string, weight int) string {
+	var strWeight string
+	if weight == graph.Infinite {
+		strWeight = "INF"
+	} else {
+		strWeight = strconv.Itoa(weight)
+	}
+	return name + " (W=" + strWeight + ")"
+}
 
 func main() {
 	stdinPtr := flag.Bool("stdin", false, "accept model dsl from stdin")
@@ -74,58 +77,53 @@ func main() {
 		log.Fatal("edges not found")
 	}
 
-	println("+ \x1b[1m" + *sourcePtr + "\x1b[0m")
+	visited := make(map[*graph.WeightedAuthorizationModelEdge]struct{})
+
+	root := tree.Root(*sourcePtr)
+
+	stack := []frame{
+		{
+			label:  *sourcePtr,
+			branch: root,
+		},
+	}
 
 	for len(edges) > 0 {
 		ndx := len(edges) - 1
 		edge := edges[ndx]
 		edges = edges[:ndx]
 
-		var weight int
-		var ok bool
-
-		if weight, ok = edge.GetWeight(*targetPtr); !ok {
+		weight, ok := edge.GetWeight(*targetPtr)
+		if !ok {
 			continue
 		}
 
 		if _, ok := visited[edge]; ok {
-			visited = nil
 			continue
 		}
 
-		if weight == graph.Infinite {
-			if visited == nil {
-				visited = make(map[*graph.WeightedAuthorizationModelEdge]struct{})
-			}
-			visited[edge] = struct{}{}
-		}
+		visited[edge] = struct{}{}
 
 		from := edge.GetFrom().GetUniqueLabel()
 		to := edge.GetTo().GetUniqueLabel()
 
-		for len(stack) > 0 && from != stack[len(stack)-1] {
+		for len(stack) > 0 && stack[len(stack)-1].label != from {
 			stack = stack[:len(stack)-1]
 		}
 
-		prefix := string(bytes.Repeat(append([]byte{'|'}, bytes.Repeat(separator, padding)...), len(stack)))
-
-		var strWeight string
-		if weight == graph.Infinite {
-			strWeight = "INF"
-		} else {
-			strWeight = strconv.Itoa(weight)
-		}
-
-		println(prefix + "|")
-		println(fmt.Sprintf("%s|--\x1b[1mW=%s\x1b[0m%s--+ \x1b[1m%s\x1b[0m", prefix, strWeight, strings.Repeat("-", inflen-len(strWeight)), to))
+		child := tree.New().Root(label(to, weight))
+		stack[len(stack)-1].branch.Child(child)
+		stack = append(stack, frame{to, child})
 
 		next, ok := g.GetEdgesFromNode(edge.GetTo())
 		if !ok {
 			continue
 		}
-
 		edges = append(edges, next...)
-		stack = append(stack, to)
 	}
-	println("")
+
+	_, err = lipgloss.Println(root)
+	if err != nil {
+		log.Fatal(err)
+	}
 }

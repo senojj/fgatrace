@@ -2,7 +2,7 @@ module fgatrace
 
 go 1.26.5
 
-require github.com/openfga/language/pkg/go v0.3.1
+require github.com/openfga/language/pkg/go v0.3.2-0.20260720221347-cb968b7c7980
 
 require (
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect

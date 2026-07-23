@@ -15,8 +15,9 @@ import (
 )
 
 type frame struct {
-	label  string
-	branch *tree.Tree
+	label   string
+	branch  *tree.Tree
+	weights []int
 }
 
 func label(name string, weight int) string {
@@ -28,7 +29,8 @@ func label(name string, weight int) string {
 
 func main() {
 	stdinPtr := flag.Bool("stdin", false, "accept model dsl from stdin")
-	weightedPtr := flag.Bool("weighted", false, "show edge weights")
+	weightPtr := flag.Bool("weight", false, "show edge weights")
+	colorPtr := flag.Bool("color", false, "show weight coloration")
 	sourcePtr := flag.String("source", "", "origin specific type and relation node label")
 	targetPtr := flag.String("target", "", "destination specific type node label")
 
@@ -80,11 +82,79 @@ func main() {
 
 	root := tree.Root(*sourcePtr)
 
-	stack := []frame{
+	stack := []*frame{
 		{
 			label:  *sourcePtr,
 			branch: root,
 		},
+	}
+
+	applyStyles := func(t *tree.Tree, weights []int) {
+		t.Enumerator(func(children tree.Children, i int) string {
+			var weight int
+			if len(weights) > i {
+				weight = weights[i]
+			}
+
+			var strWeight string
+			if weight == graph.Infinite {
+				strWeight = "INF"
+			} else {
+				strWeight = strconv.Itoa(weight)
+			}
+
+			var separator string
+
+			if *weightPtr {
+				separator = "─[" + strWeight + "]─" + strings.Repeat("─", 3-len(strWeight))
+			} else {
+				separator = "────"
+			}
+
+			if i == children.Length()-1 {
+				return "└" + separator
+			}
+			return "├" + separator
+		})
+
+		t.Indenter(func(children tree.Children, i int) string {
+			if *weightPtr {
+				if i == children.Length()-1 {
+					return "        "
+				}
+				return "│       "
+			}
+
+			if i == children.Length()-1 {
+				return "     "
+			}
+			return "│    "
+		})
+
+		t.ItemStyleFunc(func(children tree.Children, i int) lipgloss.Style {
+			style := lipgloss.NewStyle()
+
+			if !*colorPtr {
+				return style
+			}
+
+			var weight int
+			if len(weights) > i {
+				weight = weights[i]
+			}
+
+			switch {
+			case weight == 1:
+				style = style.Foreground(lipgloss.BrightGreen)
+			case weight == 2:
+				style = style.Foreground(lipgloss.BrightYellow)
+			case weight > 2 && weight < graph.Infinite:
+				style = style.Foreground(lipgloss.BrightMagenta)
+			default:
+				style = style.Foreground(lipgloss.BrightRed)
+			}
+			return style
+		})
 	}
 
 	for len(edges) > 0 {
@@ -108,12 +178,16 @@ func main() {
 		to := edge.GetTo().GetUniqueLabel()
 
 		for len(stack) > 0 && stack[len(stack)-1].label != from {
-			stack = stack[:len(stack)-1]
+			ndx := len(stack) - 1
+			applyStyles(stack[ndx].branch, stack[ndx].weights)
+			stack = stack[:ndx]
 		}
 
-		child := tree.New().Root(label(to, weight))
-		stack[len(stack)-1].branch.Child(child)
-		stack = append(stack, frame{to, child})
+		child := tree.New().Root(to)
+		parent := stack[len(stack)-1]
+		parent.weights = append(parent.weights, weight)
+		parent.branch.Child(child)
+		stack = append(stack, &frame{to, child, nil})
 
 		next, ok := g.GetEdgesFromNode(edge.GetTo())
 		if !ok {
@@ -122,39 +196,11 @@ func main() {
 		edges = append(edges, next...)
 	}
 
-	root.ItemStyleFunc(func(children tree.Children, i int) lipgloss.Style {
-		style := lipgloss.NewStyle()
-
-		child := children.At(i)
-
-		n, w, found := strings.Cut(child.Value(), "\x00")
-
-		if !*weightedPtr {
-			child.SetValue(n)
-		} else {
-			child.SetValue(n + " (w=" + w + ")")
-		}
-		if !found {
-			return style
-		}
-
-		weight, err := strconv.Atoi(w)
-		if err != nil {
-			return style
-		}
-
-		switch {
-		case weight == 1:
-			style = style.Foreground(lipgloss.BrightGreen)
-		case weight == 2:
-			style = style.Foreground(lipgloss.BrightYellow)
-		case weight > 2 && weight < graph.Infinite:
-			style = style.Foreground(lipgloss.BrightMagenta)
-		default:
-			style = style.Foreground(lipgloss.BrightRed)
-		}
-		return style
-	})
+	for len(stack) > 0 {
+		ndx := len(stack) - 1
+		applyStyles(stack[ndx].branch, stack[ndx].weights)
+		stack = stack[:ndx]
+	}
 
 	_, err = lipgloss.Println(root)
 	if err != nil {

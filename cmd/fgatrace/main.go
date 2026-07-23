@@ -197,6 +197,10 @@ func main() {
 		stack = stack[:ndx]
 	}
 
+	if *colorPtr {
+		root.RootStyle(lipgloss.NewStyle().Foreground(lipgloss.BrightBlue).Bold(true))
+	}
+
 	_, err = lipgloss.Println(root)
 	if err != nil {
 		log.Fatal(err)

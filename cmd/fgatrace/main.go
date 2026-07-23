@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/tree"
@@ -99,7 +100,7 @@ func main() {
 
 			var strWeight string
 			if weight == graph.Infinite {
-				strWeight = "INF"
+				strWeight = "\u221E"
 			} else {
 				strWeight = strconv.Itoa(weight)
 			}
@@ -107,7 +108,7 @@ func main() {
 			var separator string
 
 			if *weightPtr {
-				separator = "─[" + strWeight + "]─" + strings.Repeat("─", 3-len(strWeight))
+				separator = "─[" + strWeight + "]─" + strings.Repeat("─", 2-utf8.RuneCountInString(strWeight))
 			} else {
 				separator = "────"
 			}
@@ -121,9 +122,9 @@ func main() {
 		t.Indenter(func(children tree.Children, i int) string {
 			if *weightPtr {
 				if i == children.Length()-1 {
-					return "        "
+					return "       "
 				}
-				return "│       "
+				return "│      "
 			}
 
 			if i == children.Length()-1 {

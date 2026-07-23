@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -15,7 +16,7 @@ import (
 )
 
 type frame struct {
-	label   string
+	node    *graph.WeightedAuthorizationModelNode
 	branch  *tree.Tree
 	weights []int
 }
@@ -78,16 +79,16 @@ func main() {
 		log.Fatal("edges not found")
 	}
 
-	visited := make(map[*graph.WeightedAuthorizationModelEdge]struct{})
-
 	root := tree.Root(*sourcePtr)
 
 	stack := []*frame{
 		{
-			label:  *sourcePtr,
+			node:   node,
 			branch: root,
 		},
 	}
+
+	var visited []*graph.WeightedAuthorizationModelEdge
 
 	applyStyles := func(t *tree.Tree, weights []int) {
 		t.Enumerator(func(children tree.Children, i int) string {
@@ -167,29 +168,29 @@ func main() {
 			continue
 		}
 
-		if _, ok := visited[edge]; ok {
-			visited = make(map[*graph.WeightedAuthorizationModelEdge]struct{})
+		if slices.Contains(visited, edge) {
 			continue
 		}
 
-		visited[edge] = struct{}{}
+		visited = append(visited, edge)
 
-		from := edge.GetFrom().GetUniqueLabel()
-		to := edge.GetTo().GetUniqueLabel()
+		from := edge.GetFrom()
+		to := edge.GetTo()
 
-		for len(stack) > 0 && stack[len(stack)-1].label != from {
+		for len(stack) > 0 && stack[len(stack)-1].node != from {
 			ndx := len(stack) - 1
 			applyStyles(stack[ndx].branch, stack[ndx].weights)
 			stack = stack[:ndx]
+			visited = visited[:len(visited)-1]
 		}
 
-		child := tree.New().Root(to)
+		child := tree.New().Root(to.GetUniqueLabel())
 		parent := stack[len(stack)-1]
 		parent.weights = append(parent.weights, weight)
 		parent.branch.Child(child)
 		stack = append(stack, &frame{to, child, nil})
 
-		next, ok := g.GetEdgesFromNode(edge.GetTo())
+		next, ok := g.GetEdgesFromNode(to)
 		if !ok {
 			continue
 		}

@@ -22,13 +22,6 @@ type frame struct {
 	weights []int
 }
 
-func label(name string, weight int) string {
-	if weight == 0 {
-		return name
-	}
-	return name + "\x00" + strconv.Itoa(weight)
-}
-
 func main() {
 	stdinPtr := flag.Bool("stdin", false, "accept model dsl from stdin")
 	weightPtr := flag.Bool("weight", false, "show edge weights")

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/tree"
@@ -19,17 +20,15 @@ type frame struct {
 }
 
 func label(name string, weight int) string {
-	var strWeight string
-	if weight == graph.Infinite {
-		strWeight = "INF"
-	} else {
-		strWeight = strconv.Itoa(weight)
+	if weight == 0 {
+		return name
 	}
-	return name + " (W=" + strWeight + ")"
+	return name + "\x00" + strconv.Itoa(weight)
 }
 
 func main() {
 	stdinPtr := flag.Bool("stdin", false, "accept model dsl from stdin")
+	weightedPtr := flag.Bool("weighted", false, "show edge weights")
 	sourcePtr := flag.String("source", "", "origin specific type and relation node label")
 	targetPtr := flag.String("target", "", "destination specific type node label")
 
@@ -99,6 +98,7 @@ func main() {
 		}
 
 		if _, ok := visited[edge]; ok {
+			visited = make(map[*graph.WeightedAuthorizationModelEdge]struct{})
 			continue
 		}
 
@@ -121,6 +121,40 @@ func main() {
 		}
 		edges = append(edges, next...)
 	}
+
+	root.ItemStyleFunc(func(children tree.Children, i int) lipgloss.Style {
+		style := lipgloss.NewStyle()
+
+		child := children.At(i)
+
+		n, w, found := strings.Cut(child.Value(), "\x00")
+
+		if !*weightedPtr {
+			child.SetValue(n)
+		} else {
+			child.SetValue(n + " (w=" + w + ")")
+		}
+		if !found {
+			return style
+		}
+
+		weight, err := strconv.Atoi(w)
+		if err != nil {
+			return style
+		}
+
+		switch {
+		case weight == 1:
+			style = style.Foreground(lipgloss.BrightGreen)
+		case weight == 2:
+			style = style.Foreground(lipgloss.BrightYellow)
+		case weight > 2 && weight < graph.Infinite:
+			style = style.Foreground(lipgloss.BrightMagenta)
+		default:
+			style = style.Foreground(lipgloss.BrightRed)
+		}
+		return style
+	})
 
 	_, err = lipgloss.Println(root)
 	if err != nil {

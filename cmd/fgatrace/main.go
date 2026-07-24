@@ -26,6 +26,7 @@ func main() {
 	stdinPtr := flag.Bool("stdin", false, "accept model dsl from stdin")
 	weightPtr := flag.Bool("weight", false, "show edge weights")
 	colorPtr := flag.Bool("color", false, "show weight coloration")
+	detailPtr := flag.Bool("detail", false, "show detailed node labels")
 	sourcePtr := flag.String("source", "", "origin specific type and relation node label")
 	targetPtr := flag.String("target", "", "destination specific type node label")
 
@@ -178,7 +179,13 @@ func main() {
 			visited = visited[:len(visited)-1]
 		}
 
-		child := tree.New().Root(to.GetUniqueLabel())
+		var label string
+		if *detailPtr {
+			label = to.GetUniqueLabel()
+		} else {
+			label = to.GetLabel()
+		}
+		child := tree.New().Root(label)
 		parent := stack[len(stack)-1]
 		parent.weights = append(parent.weights, weight)
 		parent.branch.Child(child)

@@ -74,9 +74,31 @@ func main() {
 		log.Fatal("edges not found")
 	}
 
-	root := tree.Root(*sourcePtr)
+	stack := make([]*graph.WeightedAuthorizationModelEdge, len(edges))
+	copy(stack, edges)
+	slices.Reverse(stack)
 
-	stack := []*frame{
+	label := func(node *graph.WeightedAuthorizationModelNode) string {
+		var label string
+		if *detailPtr {
+			label = node.GetUniqueLabel()
+		} else {
+			label = node.GetLabel()
+		}
+
+		if node.GetRecursiveRelation() != "" {
+			label += " \u21BB"
+		}
+
+		if node.IsPartOfTupleCycle() {
+			label += " \u267A"
+		}
+		return label
+	}
+
+	root := tree.Root(label(node))
+
+	parents := []*frame{
 		{
 			node:   node,
 			branch: root,
@@ -153,10 +175,10 @@ func main() {
 		})
 	}
 
-	for len(edges) > 0 {
-		ndx := len(edges) - 1
-		edge := edges[ndx]
-		edges = edges[:ndx]
+	for len(stack) > 0 {
+		ndx := len(stack) - 1
+		edge := stack[ndx]
+		stack = stack[:ndx]
 
 		weight, ok := edge.GetWeight(*targetPtr)
 		if !ok {
@@ -172,36 +194,43 @@ func main() {
 		from := edge.GetFrom()
 		to := edge.GetTo()
 
-		for len(stack) > 0 && stack[len(stack)-1].node != from {
-			ndx := len(stack) - 1
-			applyStyles(stack[ndx].branch, stack[ndx].weights)
-			stack = stack[:ndx]
+		for len(parents) > 0 && parents[len(parents)-1].node != from {
+			ndx := len(parents) - 1
+			applyStyles(parents[ndx].branch, parents[ndx].weights)
+			parents = parents[:ndx]
 			visited = visited[:len(visited)-1]
 		}
 
-		var label string
-		if *detailPtr {
-			label = to.GetUniqueLabel()
-		} else {
-			label = to.GetLabel()
+		if edge.GetEdgeType() == graph.TTUEdge {
+			child := tree.New().Root(edge.GetTuplesetRelation())
+			parent := parents[len(parents)-1]
+			parent.weights = append(parent.weights, weight)
+			parent.branch.Child(child)
+			parents = append(parents, &frame{to, child, nil})
 		}
-		child := tree.New().Root(label)
-		parent := stack[len(stack)-1]
+
+		child := tree.New().Root(label(to))
+		parent := parents[len(parents)-1]
 		parent.weights = append(parent.weights, weight)
 		parent.branch.Child(child)
-		stack = append(stack, &frame{to, child, nil})
+		parents = append(parents, &frame{to, child, nil})
 
-		next, ok := g.GetEdgesFromNode(to)
+		edges, ok := g.GetEdgesFromNode(to)
 		if !ok {
 			continue
 		}
-		edges = append(edges, next...)
+
+		next := make([]*graph.WeightedAuthorizationModelEdge, len(edges))
+		copy(next, edges)
+		slices.Reverse(next)
+
+		stack = append(stack, next...)
 	}
 
-	for len(stack) > 0 {
-		ndx := len(stack) - 1
-		applyStyles(stack[ndx].branch, stack[ndx].weights)
-		stack = stack[:ndx]
+	for len(parents) > 0 {
+		ndx := len(parents) - 1
+		applyStyles(parents[ndx].branch, parents[ndx].weights)
+		parents = parents[:ndx]
 	}
 
 	if *colorPtr {

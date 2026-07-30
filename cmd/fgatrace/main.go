@@ -4,11 +4,11 @@ import (
 	"flag"
 	"io"
 	"log"
+	"math"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/tree"
@@ -16,27 +16,39 @@ import (
 	"github.com/openfga/language/pkg/go/transformer"
 )
 
+type item struct {
+	edge  *graph.WeightedAuthorizationModelEdge
+	depth int
+}
+
 type frame struct {
-	node    *graph.WeightedAuthorizationModelNode
-	branch  *tree.Tree
-	weights []int
+	node   *graph.WeightedAuthorizationModelNode
+	branch *tree.Tree
+	edges  []*graph.WeightedAuthorizationModelEdge
 }
 
 func main() {
-	stdinPtr := flag.Bool("stdin", false, "accept model dsl from stdin")
-	weightPtr := flag.Bool("weight", false, "show edge weights")
-	colorPtr := flag.Bool("color", false, "show weight coloration")
-	detailPtr := flag.Bool("detail", false, "show detailed node labels")
-	sourcePtr := flag.String("source", "", "origin specific type and relation node label")
-	targetPtr := flag.String("target", "", "destination specific type node label")
+	fs := flag.NewFlagSet("modifiers", flag.ExitOnError)
 
-	flag.Parse()
+	stdinPtr := fs.Bool("stdin", false, "accept model dsl from stdin")
+	weightPtr := fs.Bool("weight", false, "show edge weights")
+	colorPtr := fs.Bool("color", false, "show weight coloration")
+	detailPtr := fs.Bool("detail", false, "show detailed node labels")
+	typePtr := fs.Bool("type", false, "show edge types")
 
-	if *sourcePtr == "" {
+	err := fs.Parse(os.Args[3:])
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	source := os.Args[1]
+	target := os.Args[2]
+
+	if source == "" {
 		log.Fatal("no source provided")
 	}
 
-	if *targetPtr == "" {
+	if target == "" {
 		log.Fatal("no target provided")
 	}
 
@@ -64,7 +76,7 @@ func main() {
 		panic(err)
 	}
 
-	node, ok := g.GetNodeByID(*sourcePtr)
+	node, ok := g.GetNodeByID(source)
 	if !ok {
 		log.Fatal("node not found")
 	}
@@ -74,9 +86,11 @@ func main() {
 		log.Fatal("edges not found")
 	}
 
-	stack := make([]*graph.WeightedAuthorizationModelEdge, len(edges))
-	copy(stack, edges)
-	slices.Reverse(stack)
+	stack := make([]*item, 0, len(edges))
+
+	for _, edge := range slices.Backward(edges) {
+		stack = append(stack, &item{edge, 0})
+	}
 
 	label := func(node *graph.WeightedAuthorizationModelNode) string {
 		var label string
@@ -105,14 +119,16 @@ func main() {
 		},
 	}
 
-	var visited []*graph.WeightedAuthorizationModelEdge
+	var visited []*item
 
-	applyStyles := func(t *tree.Tree, weights []int) {
+	applyStyles := func(t *tree.Tree, edges []*graph.WeightedAuthorizationModelEdge) {
 		t.Enumerator(func(children tree.Children, i int) string {
-			var weight int
-			if len(weights) > i {
-				weight = weights[i]
+			var edge *graph.WeightedAuthorizationModelEdge
+			if len(edges) > i {
+				edge = edges[i]
 			}
+
+			weight, _ := edge.GetWeight(target)
 
 			var strWeight string
 			if weight == graph.Infinite {
@@ -121,13 +137,33 @@ func main() {
 				strWeight = strconv.Itoa(weight)
 			}
 
-			var separator string
+			separator := "──"
 
 			if *weightPtr {
-				separator = "─[" + strWeight + "]─" + strings.Repeat("─", 2-utf8.RuneCountInString(strWeight))
-			} else {
-				separator = "────"
+				separator += "[" + strWeight + "]"
 			}
+
+			if *typePtr {
+				var kind string
+
+				switch edge.GetEdgeType() {
+				case graph.DirectEdge:
+					kind = "D"
+				case graph.ComputedEdge:
+					kind = "C"
+				case graph.RewriteEdge:
+					kind = "R"
+				case graph.TTUEdge:
+					kind = "T"
+				case graph.DirectLogicalEdge, graph.TTULogicalEdge:
+					kind = "L"
+				default:
+					kind = "?"
+				}
+				separator += "[" + kind + "]"
+			}
+
+			separator += "──"
 
 			if i == children.Length()-1 {
 				return "└" + separator
@@ -136,17 +172,31 @@ func main() {
 		})
 
 		t.Indenter(func(children tree.Children, i int) string {
+			padding := 4
+
 			if *weightPtr {
-				if i == children.Length()-1 {
-					return "       "
+				var edge *graph.WeightedAuthorizationModelEdge
+				if len(edges) > i {
+					edge = edges[i]
 				}
-				return "│      "
+
+				weight, _ := edge.GetWeight(target)
+
+				padding += 3
+
+				if weight > 9 && weight < math.MaxInt32 {
+					padding += 1
+				}
+			}
+
+			if *typePtr {
+				padding += 3
 			}
 
 			if i == children.Length()-1 {
-				return "     "
+				return strings.Repeat(" ", padding+1)
 			}
-			return "│    "
+			return "│" + strings.Repeat(" ", padding)
 		})
 
 		t.ItemStyleFunc(func(children tree.Children, i int) lipgloss.Style {
@@ -156,10 +206,14 @@ func main() {
 				return style
 			}
 
-			var weight int
-			if len(weights) > i {
-				weight = weights[i]
+			var edge *graph.WeightedAuthorizationModelEdge
+			if len(edges) > i {
+				edge = edges[i]
+			} else {
+				return style
 			}
+
+			weight, _ := edge.GetWeight(target)
 
 			switch {
 			case weight == 1:
@@ -177,41 +231,58 @@ func main() {
 
 	for len(stack) > 0 {
 		ndx := len(stack) - 1
-		edge := stack[ndx]
+		i := stack[ndx]
 		stack = stack[:ndx]
 
-		weight, ok := edge.GetWeight(*targetPtr)
+		edge := i.edge
+		depth := i.depth
+
+		j := len(visited)
+		for j > 0 && visited[j-1].depth > depth {
+			j--
+		}
+
+		visited = visited[:j]
+
+		_, ok := edge.GetWeight(target)
 		if !ok {
 			continue
 		}
 
-		if slices.Contains(visited, edge) {
+		var found bool
+		for _, i := range visited {
+			if i.edge == edge {
+				found = true
+				break
+			}
+		}
+
+		if found {
 			continue
 		}
 
-		visited = append(visited, edge)
+		visited = append(visited, i)
+		depth++
 
 		from := edge.GetFrom()
 		to := edge.GetTo()
 
-		for len(parents) > 0 && parents[len(parents)-1].node != from {
-			ndx := len(parents) - 1
-			applyStyles(parents[ndx].branch, parents[ndx].weights)
-			parents = parents[:ndx]
-			visited = visited[:len(visited)-1]
-		}
+		var parent *frame
 
-		if edge.GetEdgeType() == graph.TTUEdge {
-			child := tree.New().Root(edge.GetTuplesetRelation())
-			parent := parents[len(parents)-1]
-			parent.weights = append(parent.weights, weight)
-			parent.branch.Child(child)
-			parents = append(parents, &frame{to, child, nil})
+		for len(parents) > 0 {
+			ndx := len(parents) - 1
+			parent = parents[ndx]
+
+			if parent.node == from {
+				break
+			}
+
+			applyStyles(parent.branch, parent.edges)
+			parents = parents[:ndx]
 		}
 
 		child := tree.New().Root(label(to))
-		parent := parents[len(parents)-1]
-		parent.weights = append(parent.weights, weight)
+		parent.edges = append(parent.edges, edge)
 		parent.branch.Child(child)
 		parents = append(parents, &frame{to, child, nil})
 
@@ -220,16 +291,14 @@ func main() {
 			continue
 		}
 
-		next := make([]*graph.WeightedAuthorizationModelEdge, len(edges))
-		copy(next, edges)
-		slices.Reverse(next)
-
-		stack = append(stack, next...)
+		for _, edge := range slices.Backward(edges) {
+			stack = append(stack, &item{edge, depth})
+		}
 	}
 
 	for len(parents) > 0 {
 		ndx := len(parents) - 1
-		applyStyles(parents[ndx].branch, parents[ndx].weights)
+		applyStyles(parents[ndx].branch, parents[ndx].edges)
 		parents = parents[:ndx]
 	}
 

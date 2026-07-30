@@ -28,21 +28,28 @@ type frame struct {
 }
 
 func main() {
-	fs := flag.NewFlagSet("modifiers", flag.ExitOnError)
+	options := flag.NewFlagSet("options", flag.ExitOnError)
+	sourcePtr := options.String("source", "", "relation that will serve as the traversal entry point.")
+	targetPtr := options.String("target", "", "specific type that will serve as the traversal terminal point.")
+	weightPtr := options.Bool("weight", false, "show edge weights")
+	colorPtr := options.Bool("color", false, "show weight coloration")
+	detailPtr := options.Bool("detail", false, "show detailed node labels")
+	typePtr := options.Bool("type", false, "show edge types")
+	allPtr := options.Bool("all", false, "enable all options")
 
-	stdinPtr := fs.Bool("stdin", false, "accept model dsl from stdin")
-	weightPtr := fs.Bool("weight", false, "show edge weights")
-	colorPtr := fs.Bool("color", false, "show weight coloration")
-	detailPtr := fs.Bool("detail", false, "show detailed node labels")
-	typePtr := fs.Bool("type", false, "show edge types")
-
-	err := fs.Parse(os.Args[3:])
+	err := options.Parse(os.Args[1:])
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	source := os.Args[1]
-	target := os.Args[2]
+	file := options.Arg(0)
+
+	if file == "" {
+		log.Fatal("no model file provided")
+	}
+
+	source := *sourcePtr
+	target := *targetPtr
 
 	if source == "" {
 		log.Fatal("no source provided")
@@ -52,15 +59,21 @@ func main() {
 		log.Fatal("no target provided")
 	}
 
+	if *allPtr {
+		*weightPtr = !*weightPtr
+		*colorPtr = !*colorPtr
+		*detailPtr = !*detailPtr
+		*typePtr = !*typePtr
+	}
+
 	var reader io.Reader
 
-	if *stdinPtr {
-		reader = io.LimitReader(os.Stdin, 100*1024)
+	reader, err = os.Open(file)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	if reader == nil {
-		log.Fatal("no input method indicated")
-	}
+	reader = io.LimitReader(reader, 100*1024)
 
 	data, err := io.ReadAll(reader)
 	if err != nil {

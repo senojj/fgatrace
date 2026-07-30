@@ -281,7 +281,15 @@ func main() {
 			parents = parents[:ndx]
 		}
 
-		child := tree.New().Root(label(to))
+		var l string
+
+		if edge.GetEdgeType() == graph.TTUEdge {
+			l += edge.GetTuplesetRelation() + " \u21A6 "
+		}
+
+		l += label(to)
+
+		child := tree.New().Root(l)
 		parent.edges = append(parent.edges, edge)
 		parent.branch.Child(child)
 		parents = append(parents, &frame{to, child, nil})

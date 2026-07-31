@@ -12,6 +12,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/tree"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/openfga/language/pkg/go/graph"
 	"github.com/openfga/language/pkg/go/transformer"
 )
@@ -94,6 +95,11 @@ func main() {
 		log.Fatal("node not found")
 	}
 
+	sourceWeight, ok := node.GetWeight(target)
+	if !ok {
+		log.Fatal("source has no path to target")
+	}
+
 	edges, ok := g.GetEdgesFromNode(node)
 	if !ok {
 		log.Fatal("edges not found")
@@ -133,6 +139,19 @@ func main() {
 	}
 
 	var visited []*item
+
+	wtoc := func(weight int) ansi.BasicColor {
+		switch {
+		case weight == 1:
+			return lipgloss.BrightGreen
+		case weight == 2:
+			return lipgloss.BrightYellow
+		case weight > 2 && weight < graph.Infinite:
+			return lipgloss.BrightMagenta
+		default:
+			return lipgloss.BrightRed
+		}
+	}
 
 	applyStyles := func(t *tree.Tree, edges []*graph.WeightedAuthorizationModelEdge) {
 		t.Enumerator(func(children tree.Children, i int) string {
@@ -227,17 +246,8 @@ func main() {
 			}
 
 			weight, _ := edge.GetWeight(target)
-
-			switch {
-			case weight == 1:
-				style = style.Foreground(lipgloss.BrightGreen)
-			case weight == 2:
-				style = style.Foreground(lipgloss.BrightYellow)
-			case weight > 2 && weight < graph.Infinite:
-				style = style.Foreground(lipgloss.BrightMagenta)
-			default:
-				style = style.Foreground(lipgloss.BrightRed)
-			}
+			color := wtoc(weight)
+			style = style.Foreground(color)
 			return style
 		})
 	}
@@ -324,7 +334,8 @@ func main() {
 	}
 
 	if *colorPtr {
-		root.RootStyle(lipgloss.NewStyle().Foreground(lipgloss.BrightBlue).Bold(true))
+		color := wtoc(sourceWeight)
+		root.RootStyle(lipgloss.NewStyle().Foreground(color))
 	}
 
 	_, err = lipgloss.Println(root)

@@ -33,6 +33,7 @@ func wtoc(weight int) ansi.BasicColor {
 }
 
 type decorator struct {
+	graph      *graph.WeightedAuthorizationModelGraph
 	visualizer *Visualizer
 	edges      []*graph.WeightedAuthorizationModelEdge
 }
@@ -43,7 +44,7 @@ func (d *decorator) enumerate(children tree.Children, i int) string {
 		edge = d.edges[i]
 	}
 
-	weight, _ := edge.GetWeight(d.visualizer.Target)
+	weight, _ := d.graph.GetEdgeWeight(edge, d.visualizer.Target)
 
 	var strWeight string
 	if weight == graph.Infinite {
@@ -95,7 +96,7 @@ func (d *decorator) indent(children tree.Children, i int) string {
 			edge = d.edges[i]
 		}
 
-		weight, _ := edge.GetWeight(d.visualizer.Target)
+		weight, _ := d.graph.GetEdgeWeight(edge, d.visualizer.Target)
 
 		padding += 3
 
@@ -128,7 +129,7 @@ func (d *decorator) style(children tree.Children, i int) lipgloss.Style {
 		return style
 	}
 
-	weight, _ := edge.GetWeight(d.visualizer.Target)
+	weight, _ := d.graph.GetEdgeWeight(edge, d.visualizer.Target)
 	color := wtoc(weight)
 	style = style.Foreground(color)
 	return style
@@ -161,8 +162,13 @@ func (v *Visualizer) label(node *graph.WeightedAuthorizationModelNode) string {
 	return label
 }
 
-func (v *Visualizer) decorate(t *tree.Tree, edges []*graph.WeightedAuthorizationModelEdge) {
+func (v *Visualizer) decorate(
+	g *graph.WeightedAuthorizationModelGraph,
+	t *tree.Tree,
+	edges []*graph.WeightedAuthorizationModelEdge,
+) {
 	d := decorator{
+		graph:      g,
 		visualizer: v,
 		edges:      edges,
 	}
@@ -177,7 +183,7 @@ func (v *Visualizer) Traverse(g *graph.WeightedAuthorizationModelGraph) error {
 		return ErrNotFound
 	}
 
-	sourceWeight, ok := node.GetWeight(v.Target)
+	sourceWeight, ok := g.GetNodeWeight(node, v.Target)
 	if !ok {
 		return ErrNoPath
 	}
@@ -219,7 +225,7 @@ func (v *Visualizer) Traverse(g *graph.WeightedAuthorizationModelGraph) error {
 
 		visited = visited[:j]
 
-		_, ok := edge.GetWeight(v.Target)
+		_, ok := g.GetEdgeWeight(edge, v.Target)
 		if !ok {
 			continue
 		}
@@ -252,7 +258,7 @@ func (v *Visualizer) Traverse(g *graph.WeightedAuthorizationModelGraph) error {
 				break
 			}
 
-			v.decorate(parent.branch, parent.edges)
+			v.decorate(g, parent.branch, parent.edges)
 			parents = parents[:ndx]
 		}
 
@@ -281,7 +287,7 @@ func (v *Visualizer) Traverse(g *graph.WeightedAuthorizationModelGraph) error {
 
 	for len(parents) > 0 {
 		ndx := len(parents) - 1
-		v.decorate(parents[ndx].branch, parents[ndx].edges)
+		v.decorate(g, parents[ndx].branch, parents[ndx].edges)
 		parents = parents[:ndx]
 	}
 

@@ -196,7 +196,7 @@ func (v *Visualizer) Traverse(g *graph.WeightedAuthorizationModelGraph) error {
 	stack := make([]*item, 0, len(edges))
 
 	for _, edge := range slices.Backward(edges) {
-		stack = append(stack, &item{edge, 0})
+		stack = append(stack, &item{node, edge, 0})
 	}
 
 	root := tree.Root(v.label(node))
@@ -217,6 +217,7 @@ func (v *Visualizer) Traverse(g *graph.WeightedAuthorizationModelGraph) error {
 
 		edge := i.edge
 		depth := i.depth
+		node := i.parent
 
 		j := len(visited)
 		for j > 0 && visited[j-1].depth > depth {
@@ -245,7 +246,6 @@ func (v *Visualizer) Traverse(g *graph.WeightedAuthorizationModelGraph) error {
 		visited = append(visited, i)
 		depth++
 
-		from := edge.GetFrom()
 		to := edge.GetTo()
 
 		var parent *frame
@@ -254,7 +254,7 @@ func (v *Visualizer) Traverse(g *graph.WeightedAuthorizationModelGraph) error {
 			ndx := len(parents) - 1
 			parent = parents[ndx]
 
-			if parent.node == from {
+			if parent.node == node {
 				break
 			}
 
@@ -264,16 +264,25 @@ func (v *Visualizer) Traverse(g *graph.WeightedAuthorizationModelGraph) error {
 
 		var l string
 
-		if edge.GetEdgeType() == graph.TTUEdge {
+		edgeType := edge.GetEdgeType()
+
+		if edgeType == graph.TTUEdge {
 			l += edge.GetTuplesetRelation() + " \u21A6 "
 		}
 
 		l += v.label(to)
 
-		child := tree.New().Root(l)
-		parent.edges = append(parent.edges, edge)
-		parent.branch.Child(child)
-		parents = append(parents, &frame{to, child, nil})
+		var ancestor *graph.WeightedAuthorizationModelNode
+
+		if v.Detail || (edgeType != graph.DirectLogicalEdge && edgeType != graph.TTULogicalEdge) {
+			child := tree.New().Root(l)
+			parent.edges = append(parent.edges, edge)
+			parent.branch.Child(child)
+			parents = append(parents, &frame{to, child, nil})
+			ancestor = to
+		} else {
+			ancestor = parent.node
+		}
 
 		edges, ok := g.GetEdgesFromNode(to)
 		if !ok {
@@ -281,7 +290,7 @@ func (v *Visualizer) Traverse(g *graph.WeightedAuthorizationModelGraph) error {
 		}
 
 		for _, edge := range slices.Backward(edges) {
-			stack = append(stack, &item{edge, depth})
+			stack = append(stack, &item{ancestor, edge, depth})
 		}
 	}
 
@@ -304,8 +313,9 @@ func (v *Visualizer) Traverse(g *graph.WeightedAuthorizationModelGraph) error {
 }
 
 type item struct {
-	edge  *graph.WeightedAuthorizationModelEdge
-	depth int
+	parent *graph.WeightedAuthorizationModelNode
+	edge   *graph.WeightedAuthorizationModelEdge
+	depth  int
 }
 
 type frame struct {
